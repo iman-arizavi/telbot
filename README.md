@@ -15,7 +15,8 @@ A small PHP 8.1+ Telegram bot that searches Spotify, shows selectable results, e
 ## Requirements
 
 - PHP 8.1+ with cURL and JSON extensions
-- HTTPS hosting reachable by Telegram
+- For long polling: a computer/server that stays online
+- For webhook mode only: HTTPS hosting reachable by Telegram
 - Telegram bot token
 - Spotify Developer app Client ID and Client Secret
 - The bot must be an administrator in the required channel so `getChatMember` can reliably verify users
@@ -24,8 +25,15 @@ A small PHP 8.1+ Telegram bot that searches Spotify, shows selectable results, e
 
 1. Copy `.env.example` to `.env`.
 2. Fill in the Telegram token, webhook secret, channel username/link, Spotify credentials and public `APP_URL`.
-3. Upload the project to an HTTPS-enabled PHP host.
-4. From the project directory run:
+3. To run without a domain on Windows/XAMPP, keep the computer online and run:
+
+   ```powershell
+   D:\\xampp\\php\\php.exe poll.php
+   ```
+
+   Keep this terminal window open. Press `Ctrl+C` to stop the bot.
+
+4. If you later deploy to an HTTPS host and prefer webhook mode, set `APP_URL` and `TELEGRAM_WEBHOOK_SECRET`, then run:
 
    ```bash
    php set-webhook.php
