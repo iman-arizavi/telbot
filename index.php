@@ -4,11 +4,11 @@ declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
 
 use TelBot\Bot;
-use TelBot\Spotify;
+use TelBot\ITunes;
 use TelBot\Telegram;
 
 $config = config();
-if ($config['telegram_token'] === '' || $config['spotify_id'] === '' || $config['spotify_secret'] === '') {
+if ($config['telegram_token'] === '') {
     http_response_code(500);
     exit('Missing configuration.');
 }
@@ -30,7 +30,7 @@ if (!is_array($update)) {
 try {
     (new Bot(
         new Telegram($config['telegram_token']),
-        new Spotify($config['spotify_id'], $config['spotify_secret']),
+        new ITunes(),
         $config
     ))->handle($update);
     http_response_code(200);
@@ -40,4 +40,3 @@ try {
     http_response_code(500);
     echo 'Error';
 }
-

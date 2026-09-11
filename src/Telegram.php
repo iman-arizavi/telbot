@@ -50,6 +50,16 @@ final class Telegram
         $this->call('answerCallbackQuery', ['callback_query_id' => $callbackId, 'text' => $text]);
     }
 
+    public function answerInlineQuery(string $inlineQueryId, array $results): void
+    {
+        $this->call('answerInlineQuery', [
+            'inline_query_id' => $inlineQueryId,
+            'results' => json_encode($results, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'cache_time' => 30,
+            'is_personal' => true,
+        ]);
+    }
+
     public function isChannelMember(int $userId, string $channel): bool
     {
         try {
@@ -61,10 +71,13 @@ final class Telegram
         }
     }
 
-    public function sendAudio(int|string $chatId, string $audio, string $caption): array
+    public function sendAudio(int|string $chatId, string $audio, string $caption, ?array $keyboard = null): array
     {
         $params = ['chat_id' => $chatId, 'caption' => $caption, 'parse_mode' => 'HTML'];
         $params['audio'] = is_file($audio) ? new \CURLFile($audio, 'audio/mpeg') : $audio;
+        if ($keyboard !== null) {
+            $params['reply_markup'] = json_encode($keyboard, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
         return $this->call('sendAudio', $params);
     }
 }

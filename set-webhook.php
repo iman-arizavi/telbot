@@ -18,7 +18,6 @@ if ($config['app_url'] === '' || $config['telegram_token'] === '' || $config['we
 $result = (new Telegram($config['telegram_token']))->call('setWebhook', [
     'url' => $config['app_url'] . '/index.php',
     'secret_token' => $config['webhook_secret'],
-    'allowed_updates' => json_encode(['message', 'callback_query']),
+    'allowed_updates' => json_encode(['message', 'callback_query', 'inline_query']),
 ]);
 echo "Webhook configured.\n";
-

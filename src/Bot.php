@@ -9,13 +9,18 @@ final class Bot
 {
     public function __construct(
         private readonly Telegram $telegram,
-        private readonly Spotify $spotify,
+        private readonly ITunes $music,
         private readonly array $config
     ) {
     }
 
     public function handle(array $update): void
     {
+        if (isset($update['inline_query'])) {
+            $this->handleInlineQuery($update['inline_query']);
+            return;
+        }
+
         if (isset($update['callback_query'])) {
             $this->handleCallback($update['callback_query']);
             return;
@@ -27,9 +32,16 @@ final class Bot
         }
 
         $chatId = $message['chat']['id'];
+        $userId = (int) ($message['from']['id'] ?? $chatId);
         $text = trim((string) ($message['text'] ?? ''));
+        if (preg_match('/^\/start(?:@\\w+)?\\s+download_i_(\\d+)$/', $text, $match)) {
+            $this->deliverTrack($chatId, $userId, $match[1]);
+            return;
+        }
         if ($text === '' || str_starts_with($text, '/start')) {
-            $this->telegram->sendMessage($chatId, "🎵 نام آهنگ یا خواننده را بفرست تا در Spotify جست‌وجو کنم.\n\nبرای دریافت فایل‌های مجاز باید عضو کانال باشی.");
+            $username = ltrim((string) ($this->config['bot_username'] ?? ''), '@');
+            $inlineHelp = $username !== '' ? "\n\nدر هر چت نیز بنویس: <code>@{$username} نام آهنگ</code>" : '';
+            $this->telegram->sendMessage($chatId, "🎵 نام آهنگ یا خواننده را بفرست تا جست‌وجو کنم.\nبرای دریافت فایل‌های مجاز باید عضو کانال باشی.{$inlineHelp}");
             return;
         }
 
@@ -39,7 +51,7 @@ final class Bot
         }
 
         try {
-            $tracks = $this->spotify->searchTracks($text);
+            $tracks = $this->music->searchTracks($text);
             if ($tracks === []) {
                 $this->telegram->sendMessage($chatId, 'نتیجه‌ای پیدا نشد. نام آهنگ یا خواننده را دقیق‌تر بنویس.');
                 return;
@@ -60,6 +72,53 @@ final class Bot
         }
     }
 
+    private function handleInlineQuery(array $inlineQuery): void
+    {
+        $id = (string) ($inlineQuery['id'] ?? '');
+        $query = trim((string) ($inlineQuery['query'] ?? ''));
+        if ($id === '') {
+            return;
+        }
+        if ($query === '') {
+            $this->telegram->answerInlineQuery($id, []);
+            return;
+        }
+
+        try {
+            $tracks = $this->music->searchTracks($query, 10);
+            $username = ltrim((string) ($this->config['bot_username'] ?? ''), '@');
+            $results = [];
+            foreach ($tracks as $track) {
+                if (empty($track['preview_url']) || $username === '') {
+                    continue;
+                }
+                $artist = (string) ($track['artists'][0]['name'] ?? 'Unknown');
+                $trackId = preg_replace('/\\D+/', '', (string) $track['id']);
+                if ($trackId === '') {
+                    continue;
+                }
+                $results[] = [
+                    'type' => 'audio',
+                    'id' => 'itunes_' . $trackId,
+                    'audio_url' => $track['preview_url'],
+                    'title' => (string) $track['name'],
+                    'performer' => $artist,
+                    'caption' => "🎧 پیش‌نمایش رسمی\n" . $track['name'] . ' — ' . $artist,
+                    'reply_markup' => [
+                        'inline_keyboard' => [[[
+                            'text' => '⬇️ دریافت موزیک',
+                            'url' => "https://t.me/{$username}?start=download_i_{$trackId}",
+                        ]]],
+                    ],
+                ];
+            }
+            $this->telegram->answerInlineQuery($id, $results);
+        } catch (Throwable $e) {
+            $this->log($e);
+            $this->telegram->answerInlineQuery($id, []);
+        }
+    }
+
     private function handleCallback(array $callback): void
     {
         $callbackId = (string) ($callback['id'] ?? '');
@@ -71,17 +130,29 @@ final class Bot
         }
 
         $trackId = substr($data, 6);
+        $this->deliverTrack($chatId, (int) $userId, $trackId, $callbackId);
+    }
+
+    private function deliverTrack(int|string $chatId, int $userId, string $trackId, ?string $callbackId = null): void
+    {
         if (!$this->telegram->isChannelMember((int) $userId, $this->config['channel'])) {
-            $this->telegram->answerCallback($callbackId, 'ابتدا عضو کانال شو');
+            if ($callbackId !== null) {
+                $this->telegram->answerCallback($callbackId, 'ابتدا عضو کانال شو');
+            }
             $this->telegram->sendMessage($chatId, 'برای دریافت فایل ابتدا عضو کانال شو و بعد دوباره روی آهنگ بزن.', [
-                'inline_keyboard' => [[['text' => 'عضویت در کانال', 'url' => $this->config['channel_url']]]],
+                'inline_keyboard' => [
+                    [['text' => 'عضویت در کانال', 'url' => $this->config['channel_url']]],
+                    [['text' => '✅ عضو شدم؛ دریافت', 'callback_data' => 'track:' . $trackId]],
+                ],
             ]);
             return;
         }
 
-        $this->telegram->answerCallback($callbackId, 'در حال بررسی…');
+        if ($callbackId !== null) {
+            $this->telegram->answerCallback($callbackId, 'در حال بررسی…');
+        }
         try {
-            $track = $this->spotify->track($trackId);
+            $track = $this->music->track($trackId);
             $artist = $track['artists'][0]['name'] ?? 'Unknown';
             $caption = htmlspecialchars("{$track['name']} — {$artist}", ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             $licensedFile = dirname(__DIR__) . '/storage/tracks/' . preg_replace('/[^A-Za-z0-9]/', '', $trackId) . '.mp3';
@@ -91,11 +162,14 @@ final class Bot
                 return;
             }
             if (!empty($track['preview_url'])) {
-                $this->telegram->sendAudio($chatId, $track['preview_url'], "🎧 پیش‌نمایش رسمی: {$caption}");
+                $url = $track['external_urls']['music'] ?? 'https://music.apple.com/';
+                $this->telegram->sendAudio($chatId, $track['preview_url'], "🎧 پیش‌نمایش رسمی: {$caption}\n\nنسخه کامل مجاز روی سرور موجود نیست.", [
+                    'inline_keyboard' => [[['text' => 'گوش‌دادن از منبع رسمی', 'url' => $url]]],
+                ]);
                 return;
             }
 
-            $url = $track['external_urls']['spotify'] ?? 'https://open.spotify.com/';
+            $url = $track['external_urls']['music'] ?? 'https://music.apple.com/';
             $this->telegram->sendMessage($chatId, "نسخه مجاز این آهنگ روی سرور موجود نیست. از لینک رسمی گوش کن:\n{$url}");
         } catch (Throwable $e) {
             $this->log($e);
@@ -112,4 +186,3 @@ final class Bot
         @file_put_contents($dir . '/bot.log', '[' . date('c') . '] ' . $e . PHP_EOL, FILE_APPEND | LOCK_EX);
     }
 }
-

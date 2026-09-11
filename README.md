@@ -1,13 +1,13 @@
-# Telegram Spotify Search Bot (PHP)
+# Telegram Music Search Bot (PHP)
 
-A small PHP 8.1+ Telegram bot that searches Spotify, shows selectable results, enforces channel membership, and delivers only audio that you are authorized to distribute.
+A small PHP 8.1+ Telegram bot that searches the iTunes catalog without an API account, shows selectable results, enforces channel membership, and delivers only audio that you are authorized to distribute.
 
 ## Features
 
-- Spotify track search with inline result buttons
+- Account-free music search with inline result buttons
 - Mandatory Telegram channel membership check
 - Delivery of licensed/local MP3 files
-- Official Spotify preview when available
+- Official iTunes preview when available
 - Secure webhook secret validation
 - Secrets kept outside Git in a local `.env`
 - `PAYMENTS_ENABLED` placeholder for a future payment module
@@ -18,13 +18,12 @@ A small PHP 8.1+ Telegram bot that searches Spotify, shows selectable results, e
 - For long polling: a computer/server that stays online
 - For webhook mode only: HTTPS hosting reachable by Telegram
 - Telegram bot token
-- Spotify Developer app Client ID and Client Secret
 - The bot must be an administrator in the required channel so `getChatMember` can reliably verify users
 
 ## Setup
 
 1. Copy `.env.example` to `.env`.
-2. Fill in the Telegram token, webhook secret, channel username/link, Spotify credentials and public `APP_URL`.
+2. Fill in the Telegram token and channel username/link. Spotify credentials are not required.
 3. To run without a domain on Windows/XAMPP, keep the computer online and run:
 
    ```powershell
@@ -43,10 +42,10 @@ A small PHP 8.1+ Telegram bot that searches Spotify, shows selectable results, e
 
 ## Licensed full audio
 
-Spotify's Web API supplies metadata and sometimes a short official preview; it does not provide full downloadable song files. To distribute a track you own or are licensed to share, put the MP3 at:
+The catalog supplies metadata and a short official preview; it does not provide full downloadable song files. To distribute a track you own or are licensed to share, put the MP3 at:
 
 ```
-storage/tracks/SPOTIFY_TRACK_ID.mp3
+storage/tracks/TRACK_ID.mp3
 ```
 
 The bot will prefer that file, then try the official preview, then fall back to the official Spotify listening link.
@@ -54,7 +53,6 @@ The bot will prefer that file, then try the official preview, then fall back to 
 ## Creating credentials
 
 - Telegram: create/copy the bot token through BotFather.
-- Spotify: create an app in the Spotify Developer Dashboard and copy its Client ID and Client Secret.
 - Webhook secret: generate a long random string, for example:
 
   ```bash

@@ -4,7 +4,7 @@ declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
 
 use TelBot\Bot;
-use TelBot\Spotify;
+use TelBot\ITunes;
 use TelBot\Telegram;
 
 if (PHP_SAPI !== 'cli') {
@@ -13,14 +13,16 @@ if (PHP_SAPI !== 'cli') {
 }
 
 $config = config();
-if ($config['telegram_token'] === '' || $config['spotify_id'] === '' || $config['spotify_secret'] === '') {
-    exit("TELEGRAM_BOT_TOKEN, SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET are required in .env.\n");
+if ($config['telegram_token'] === '') {
+    exit("TELEGRAM_BOT_TOKEN is required in .env.\n");
 }
 
 $telegram = new Telegram($config['telegram_token']);
+$me = $telegram->call('getMe');
+$config['bot_username'] = (string) ($me['username'] ?? '');
 $bot = new Bot(
     $telegram,
-    new Spotify($config['spotify_id'], $config['spotify_secret']),
+    new ITunes(),
     $config
 );
 
@@ -36,7 +38,7 @@ while (true) {
         $updates = $telegram->call('getUpdates', [
             'offset' => $offset,
             'timeout' => 25,
-            'allowed_updates' => json_encode(['message', 'callback_query']),
+            'allowed_updates' => json_encode(['message', 'callback_query', 'inline_query']),
         ]);
 
         foreach ($updates as $update) {
