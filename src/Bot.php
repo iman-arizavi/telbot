@@ -85,7 +85,7 @@ final class Bot
         }
 
         try {
-            $tracks = $this->music->searchTracks($query, 10);
+            $tracks = $this->music->searchTracks($query, 5);
             $username = ltrim((string) ($this->config['bot_username'] ?? ''), '@');
             $results = [];
             foreach ($tracks as $track) {
@@ -97,12 +97,14 @@ final class Bot
                 if ($trackId === '') {
                     continue;
                 }
+                $fileId = $this->cacheInlineAudio((int) ($inlineQuery['from']['id'] ?? 0), $track);
+                if ($fileId === null) {
+                    continue;
+                }
                 $results[] = [
                     'type' => 'audio',
                     'id' => 'itunes_' . $trackId,
-                    'audio_url' => $track['preview_url'],
-                    'title' => (string) $track['name'],
-                    'performer' => $artist,
+                    'audio_file_id' => $fileId,
                     'caption' => "🎧 پیش‌نمایش رسمی\n" . $track['name'] . ' — ' . $artist,
                     'reply_markup' => [
                         'inline_keyboard' => [[[
@@ -116,6 +118,50 @@ final class Bot
         } catch (Throwable $e) {
             $this->log($e);
             $this->telegram->answerInlineQuery($id, []);
+        }
+    }
+
+    private function cacheInlineAudio(int $userId, array $track): ?string
+    {
+        if ($userId <= 0 || empty($track['preview_url']) || empty($track['id'])) {
+            return null;
+        }
+
+        $cacheFile = dirname(__DIR__) . '/storage/inline-cache.json';
+        $cache = [];
+        if (is_file($cacheFile)) {
+            $decoded = json_decode((string) file_get_contents($cacheFile), true);
+            $cache = is_array($decoded) ? $decoded : [];
+        }
+        $key = 'itunes_' . preg_replace('/\\D+/', '', (string) $track['id']);
+        if (!empty($cache[$key])) {
+            return (string) $cache[$key];
+        }
+
+        try {
+            $artist = (string) ($track['artists'][0]['name'] ?? 'Unknown');
+            $message = $this->telegram->sendAudio(
+                $userId,
+                (string) $track['preview_url'],
+                'در حال آماده‌سازی پیش‌نمایش: ' . htmlspecialchars((string) $track['name'] . ' — ' . $artist, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+            );
+            $fileId = $message['audio']['file_id'] ?? null;
+            if (!empty($message['message_id'])) {
+                $this->telegram->deleteMessage($userId, (int) $message['message_id']);
+            }
+            if (!$fileId) {
+                return null;
+            }
+            $cache[$key] = $fileId;
+            file_put_contents(
+                $cacheFile,
+                json_encode($cache, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                LOCK_EX
+            );
+            return (string) $fileId;
+        } catch (Throwable $e) {
+            $this->log($e);
+            return null;
         }
     }
 

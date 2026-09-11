@@ -37,11 +37,15 @@ final class ITunes
             'term' => $query,
             'media' => 'music',
             'entity' => 'song',
-            'limit' => $limit,
+            'limit' => min(50, max(20, $limit * 4)),
             'explicit' => 'Yes',
         ]);
 
-        return array_map([$this, 'normalize'], $data['results'] ?? []);
+        $tracks = array_map([$this, 'normalize'], $data['results'] ?? []);
+        usort($tracks, fn (array $a, array $b): int =>
+            $this->relevance($b, $query) <=> $this->relevance($a, $query)
+        );
+        return array_slice($tracks, 0, $limit);
     }
 
     public function track(string $id): array
@@ -67,5 +71,48 @@ final class ITunes
                 'music' => $track['trackViewUrl'] ?? $track['collectionViewUrl'] ?? 'https://music.apple.com/',
             ],
         ];
+    }
+
+    private function relevance(array $track, string $query): int
+    {
+        $q = $this->clean($query);
+        $title = $this->clean((string) ($track['name'] ?? ''));
+        $artist = $this->clean((string) ($track['artists'][0]['name'] ?? ''));
+        $combined = trim($title . ' ' . $artist);
+        $score = 0;
+
+        if ($title === $q) {
+            $score += 1200;
+        } elseif (str_starts_with($title, $q)) {
+            $score += 750;
+        } elseif ($q !== '' && str_contains($title, $q)) {
+            $score += 550;
+        }
+        if ($artist === $q) {
+            $score += 650;
+        } elseif ($q !== '' && str_contains($artist, $q)) {
+            $score += 350;
+        }
+        if ($combined === $q) {
+            $score += 900;
+        }
+
+        $tokens = array_values(array_filter(explode(' ', $q), fn (string $v): bool => mb_strlen($v) > 1));
+        foreach ($tokens as $token) {
+            if (str_contains($title, $token)) {
+                $score += 140;
+            }
+            if (str_contains($artist, $token)) {
+                $score += 100;
+            }
+        }
+        return $score;
+    }
+
+    private function clean(string $value): string
+    {
+        $value = mb_strtolower(trim($value), 'UTF-8');
+        $value = preg_replace('/[^\\p{L}\\p{N}]+/u', ' ', $value) ?? $value;
+        return trim(preg_replace('/\\s+/u', ' ', $value) ?? $value);
     }
 }

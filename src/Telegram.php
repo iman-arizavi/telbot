@@ -60,6 +60,11 @@ final class Telegram
         ]);
     }
 
+    public function deleteMessage(int|string $chatId, int $messageId): void
+    {
+        $this->call('deleteMessage', ['chat_id' => $chatId, 'message_id' => $messageId]);
+    }
+
     public function isChannelMember(int $userId, string $channel): bool
     {
         try {
