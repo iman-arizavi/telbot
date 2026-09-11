@@ -41,7 +41,27 @@ final class Bot
         if ($text === '' || str_starts_with($text, '/start')) {
             $username = ltrim((string) ($this->config['bot_username'] ?? ''), '@');
             $inlineHelp = $username !== '' ? "\n\nدر هر چت نیز بنویس: <code>@{$username} نام آهنگ</code>" : '';
-            $this->telegram->sendMessage($chatId, "🎵 نام آهنگ یا خواننده را بفرست تا جست‌وجو کنم.\nبرای دریافت فایل‌های مجاز باید عضو کانال باشی.{$inlineHelp}");
+            $this->telegram->sendMessage($chatId, "🎵 نام آهنگ یا خواننده را بفرست تا جست‌وجو کنم.\nبرای دریافت فایل‌های مجاز باید عضو کانال باشی.{$inlineHelp}", $this->mainMenu());
+            return;
+        }
+
+        if ($text === '/search' || $text === '🔎 جستجوی آهنگ') {
+            $this->telegram->sendMessage($chatId, 'روی دکمه زیر بزن و بعد از نام ربات، نام آهنگ یا خواننده را تایپ کن:', [
+                'inline_keyboard' => [[[
+                    'text' => '🔎 شروع جستجو',
+                    'switch_inline_query_current_chat' => '',
+                ]]],
+            ]);
+            return;
+        }
+        if ($text === '/channel' || $text === '📢 ورود به کانال') {
+            $this->telegram->sendMessage($chatId, 'برای ورود به کانال روی دکمه زیر بزن:', [
+                'inline_keyboard' => [[['text' => '📢 ورود به کانال', 'url' => $this->config['channel_url']]]],
+            ]);
+            return;
+        }
+        if ($text === '/help' || $text === 'ℹ️ راهنما') {
+            $this->telegram->sendMessage($chatId, "نام آهنگ را مستقیم بفرست یا از دکمه جستجو استفاده کن.\nبرای جستجو در هر چت هم بنویس: <code>@" . ltrim((string) ($this->config['bot_username'] ?? ''), '@') . " نام آهنگ</code>", $this->mainMenu());
             return;
         }
 
@@ -70,6 +90,20 @@ final class Bot
             $this->log($e);
             $this->telegram->sendMessage($chatId, 'فعلاً جست‌وجو انجام نشد. چند لحظه دیگر دوباره امتحان کن.');
         }
+    }
+
+    private function mainMenu(): array
+    {
+        return [
+            'inline_keyboard' => [
+                [[
+                    'text' => '🔎 جستجوی آهنگ',
+                    'switch_inline_query_current_chat' => '',
+                ]],
+                [['text' => '📢 ورود به کانال', 'url' => $this->config['channel_url']]],
+                [['text' => 'ℹ️ راهنما', 'callback_data' => 'help']],
+            ],
+        ];
     }
 
     private function handleInlineQuery(array $inlineQuery): void
@@ -171,6 +205,11 @@ final class Bot
         $data = (string) ($callback['data'] ?? '');
         $chatId = $callback['message']['chat']['id'] ?? null;
         $userId = $callback['from']['id'] ?? null;
+        if ($chatId && $data === 'help') {
+            $this->telegram->answerCallback($callbackId);
+            $this->telegram->sendMessage($chatId, 'نام آهنگ را مستقیم بفرست یا روی دکمه جستجو بزن. برای دریافت فایل باید عضو کانال باشی.');
+            return;
+        }
         if (!$chatId || !$userId || !str_starts_with($data, 'track:')) {
             return;
         }

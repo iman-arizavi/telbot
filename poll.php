@@ -20,6 +20,17 @@ if ($config['telegram_token'] === '') {
 $telegram = new Telegram($config['telegram_token']);
 $me = $telegram->call('getMe');
 $config['bot_username'] = (string) ($me['username'] ?? '');
+$telegram->call('setMyCommands', [
+    'commands' => json_encode([
+        ['command' => 'start', 'description' => 'شروع ربات'],
+        ['command' => 'search', 'description' => 'جستجوی آهنگ'],
+        ['command' => 'channel', 'description' => 'ورود به کانال'],
+        ['command' => 'help', 'description' => 'راهنما'],
+    ], JSON_UNESCAPED_UNICODE),
+]);
+$telegram->call('setChatMenuButton', [
+    'menu_button' => json_encode(['type' => 'commands']),
+]);
 $bot = new Bot(
     $telegram,
     new ITunes(),
