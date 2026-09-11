@@ -34,8 +34,8 @@ final class Bot
         $chatId = $message['chat']['id'];
         $userId = (int) ($message['from']['id'] ?? $chatId);
         $text = trim((string) ($message['text'] ?? ''));
-        if (preg_match('/^\/start(?:@\\w+)?\\s+download_i_(\\d+)$/', $text, $match)) {
-            $this->deliverTrack($chatId, $userId, $match[1]);
+        if (preg_match('/^\/start(?:@\\w+)?\\s+download_([id])_(\\d+)$/', $text, $match)) {
+            $this->deliverTrack($chatId, $userId, $match[2], null, $match[1]);
             return;
         }
         if ($text === '' || str_starts_with($text, '/start')) {
@@ -119,7 +119,7 @@ final class Bot
         }
 
         try {
-            $tracks = $this->music->searchTracks($query, 5);
+            $tracks = $this->searchDeezer($query, 10);
             $username = ltrim((string) ($this->config['bot_username'] ?? ''), '@');
             $results = [];
             foreach ($tracks as $track) {
@@ -131,19 +131,17 @@ final class Bot
                 if ($trackId === '') {
                     continue;
                 }
-                $fileId = $this->cacheInlineAudio((int) ($inlineQuery['from']['id'] ?? 0), $track);
-                if ($fileId === null) {
-                    continue;
-                }
                 $results[] = [
                     'type' => 'audio',
-                    'id' => 'itunes_' . $trackId,
-                    'audio_file_id' => $fileId,
+                    'id' => 'deezer_' . $trackId,
+                    'audio_url' => $track['preview_url'],
+                    'title' => (string) $track['name'],
+                    'performer' => $artist,
                     'caption' => "🎧 پیش‌نمایش رسمی\n" . $track['name'] . ' — ' . $artist,
                     'reply_markup' => [
                         'inline_keyboard' => [[[
                             'text' => '⬇️ دریافت موزیک',
-                            'url' => "https://t.me/{$username}?start=download_i_{$trackId}",
+                            'url' => "https://t.me/{$username}?start=download_d_{$trackId}",
                         ]]],
                     ],
                 ];
@@ -155,48 +153,64 @@ final class Bot
         }
     }
 
-    private function cacheInlineAudio(int $userId, array $track): ?string
+    private function searchDeezer(string $query, int $limit): array
     {
-        if ($userId <= 0 || empty($track['preview_url']) || empty($track['id'])) {
-            return null;
-        }
-
-        $cacheFile = dirname(__DIR__) . '/storage/inline-cache.json';
-        $cache = [];
-        if (is_file($cacheFile)) {
-            $decoded = json_decode((string) file_get_contents($cacheFile), true);
-            $cache = is_array($decoded) ? $decoded : [];
-        }
-        $key = 'itunes_' . preg_replace('/\\D+/', '', (string) $track['id']);
-        if (!empty($cache[$key])) {
-            return (string) $cache[$key];
-        }
-
-        try {
-            $artist = (string) ($track['artists'][0]['name'] ?? 'Unknown');
-            $message = $this->telegram->sendAudio(
-                $userId,
-                (string) $track['preview_url'],
-                'در حال آماده‌سازی پیش‌نمایش: ' . htmlspecialchars((string) $track['name'] . ' — ' . $artist, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
-            );
-            $fileId = $message['audio']['file_id'] ?? null;
-            if (!empty($message['message_id'])) {
-                $this->telegram->deleteMessage($userId, (int) $message['message_id']);
+        $data = $this->httpJson('https://api.deezer.com/search?' . http_build_query([
+            'q' => $query,
+            'limit' => $limit,
+            'strict' => 'on',
+        ]));
+        $tracks = [];
+        foreach ($data['data'] ?? [] as $track) {
+            if (empty($track['id']) || empty($track['preview'])) {
+                continue;
             }
-            if (!$fileId) {
-                return null;
-            }
-            $cache[$key] = $fileId;
-            file_put_contents(
-                $cacheFile,
-                json_encode($cache, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                LOCK_EX
-            );
-            return (string) $fileId;
-        } catch (Throwable $e) {
-            $this->log($e);
-            return null;
+            $tracks[] = [
+                'id' => (string) $track['id'],
+                'name' => (string) ($track['title'] ?? 'Unknown'),
+                'artists' => [['name' => (string) ($track['artist']['name'] ?? 'Unknown')]],
+                'preview_url' => (string) $track['preview'],
+                'external_urls' => ['music' => (string) ($track['link'] ?? 'https://www.deezer.com/')],
+            ];
         }
+        return $tracks;
+    }
+
+    private function deezerTrack(string $trackId): array
+    {
+        $track = $this->httpJson('https://api.deezer.com/track/' . rawurlencode($trackId));
+        if (empty($track['id']) || isset($track['error'])) {
+            throw new \RuntimeException('Deezer track not found.');
+        }
+        return [
+            'id' => (string) $track['id'],
+            'name' => (string) ($track['title'] ?? 'Unknown'),
+            'artists' => [['name' => (string) ($track['artist']['name'] ?? 'Unknown')]],
+            'preview_url' => $track['preview'] ?? null,
+            'external_urls' => ['music' => (string) ($track['link'] ?? 'https://www.deezer.com/')],
+        ];
+    }
+
+    private function httpJson(string $url): array
+    {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => 8,
+            CURLOPT_CONNECTTIMEOUT => 4,
+            CURLOPT_HTTPHEADER => ['Accept: application/json'],
+            CURLOPT_USERAGENT => 'SpotTDownBot/1.0',
+        ]);
+        $body = curl_exec($ch);
+        $error = curl_error($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+        if ($body === false || $status >= 400) {
+            throw new \RuntimeException("Music service error ({$status}): {$error}");
+        }
+        $data = json_decode((string) $body, true, 512, JSON_THROW_ON_ERROR);
+        return is_array($data) ? $data : [];
     }
 
     private function handleCallback(array $callback): void
@@ -214,11 +228,17 @@ final class Bot
             return;
         }
 
-        $trackId = substr($data, 6);
-        $this->deliverTrack($chatId, (int) $userId, $trackId, $callbackId);
+        $parts = explode(':', $data);
+        $provider = count($parts) >= 3 && in_array($parts[1], ['i', 'd'], true) ? $parts[1] : 'i';
+        $trackId = count($parts) >= 3 ? $parts[2] : ($parts[1] ?? '');
+        if (!ctype_digit($trackId)) {
+            $this->telegram->answerCallback($callbackId, 'شناسه آهنگ نامعتبر است');
+            return;
+        }
+        $this->deliverTrack($chatId, (int) $userId, $trackId, $callbackId, $provider);
     }
 
-    private function deliverTrack(int|string $chatId, int $userId, string $trackId, ?string $callbackId = null): void
+    private function deliverTrack(int|string $chatId, int $userId, string $trackId, ?string $callbackId = null, string $provider = 'i'): void
     {
         if (!$this->telegram->isChannelMember((int) $userId, $this->config['channel'])) {
             if ($callbackId !== null) {
@@ -227,7 +247,7 @@ final class Bot
             $this->telegram->sendMessage($chatId, 'برای دریافت فایل ابتدا عضو کانال شو و بعد دوباره روی آهنگ بزن.', [
                 'inline_keyboard' => [
                     [['text' => 'عضویت در کانال', 'url' => $this->config['channel_url']]],
-                    [['text' => '✅ عضو شدم؛ دریافت', 'callback_data' => 'track:' . $trackId]],
+                    [['text' => '✅ عضو شدم؛ دریافت', 'callback_data' => 'track:' . $provider . ':' . $trackId]],
                 ],
             ]);
             return;
@@ -237,10 +257,10 @@ final class Bot
             $this->telegram->answerCallback($callbackId, 'در حال بررسی…');
         }
         try {
-            $track = $this->music->track($trackId);
+            $track = $provider === 'd' ? $this->deezerTrack($trackId) : $this->music->track($trackId);
             $artist = $track['artists'][0]['name'] ?? 'Unknown';
             $caption = htmlspecialchars("{$track['name']} — {$artist}", ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            $licensedFile = dirname(__DIR__) . '/storage/tracks/' . preg_replace('/[^A-Za-z0-9]/', '', $trackId) . '.mp3';
+            $licensedFile = dirname(__DIR__) . '/storage/tracks/' . $provider . '_' . preg_replace('/[^A-Za-z0-9]/', '', $trackId) . '.mp3';
 
             if (is_file($licensedFile)) {
                 $this->telegram->sendAudio($chatId, $licensedFile, "🎧 {$caption}");
