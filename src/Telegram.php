@@ -11,7 +11,7 @@ final class Telegram
     {
     }
 
-    public function call(string $method, array $params = []): array
+    public function call(string $method, array $params = []): mixed
     {
         $ch = curl_init("https://api.telegram.org/bot{$this->token}/{$method}");
         curl_setopt_array($ch, [
@@ -68,4 +68,3 @@ final class Telegram
         return $this->call('sendAudio', $params);
     }
 }
-
